@@ -1,0 +1,10 @@
+{
+  "name": "actions-rss-feeds",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "cheerio": "github:EIGHTFINITE/cheerio#main",
+    "electron": "^25.9.3",
+    "top-user-agents": "github:EIGHTFINITE/top-user-agents#main"
+  }
+}

@@ -1,0 +1,157 @@
+name: 'Feed (w10)'
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+
+permissions: write-all
+
+jobs:
+  w10:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4.1.1
+    - name: Feed
+      shell: bash
+      run: |
+        # Configure git to be more predictable and deterministic
+        git config core.autocrlf false
+        git config core.ignorecase false
+        git config core.fscache true
+        git config core.longpaths true
+        git config diff.renameLimit 0
+        git config status.renameLimit 0
+        git config merge.renameLimit 0
+        git config http.lowSpeedLimit 0
+        git config http.lowSpeedTime 300
+        git config http.postBuffer 1048576000
+        git config pack.threads 1
+        git config index.threads 0
+        git reset --hard HEAD
+        git clean -dffx
+        
+        # Install using npm 6
+        # Later versions fail to create a sane dependency tree in some situations
+        export npm_version=$(curl -sS 'https://registry.npmjs.org/npm' | python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest-6'])")
+        curl -sSo "npm-$npm_version.tgz" "https://registry.npmjs.org/npm/-/npm-$npm_version.tgz"
+        mkdir -p "bin/npm"
+        tar -xzf "npm-$npm_version.tgz" --strip-components=1 -C "bin/npm"
+        rm "npm-$npm_version.tgz"
+        
+        # Install dependencies
+        node bin/npm/bin/npm-cli.js install --no-audit --no-bin-links --no-fund --ignore-scripts --no-optional "electron" "cheerio@github:EIGHTFINITE/cheerio#main" "top-user-agents@github:EIGHTFINITE/top-user-agents#main"
+        cd node_modules/electron
+        node install.js
+        cd ~-
+        
+        # Update feed
+        mkdir -p w10
+        cat << 'EOF' > script.js
+        if(process.versions.electron) {
+          console.log('Running on Electron ' + process.versions.electron + ' + Node ' + process.versions.node)
+          const feedUrl = 'https://www.1377x.to/sort-search/Windows%20LTSC%20Gen2/time/desc/1/'
+          const feedDesc = "Download Windows LTSC Gen2"
+          const electronUserAgent = require('./node_modules/top-user-agents/index.json')[0]
+          const fs = require('fs')
+          const cheerio = require('cheerio')
+          const { app, BrowserWindow } = require('electron')
+          app.whenReady().then(() => {
+            const win = new BrowserWindow({
+              width: 1920,
+              height: 969,
+              frame: false,
+              show: false,
+              webPreferences: {
+                  backgroundThrottling: false
+              }
+            })
+            win.loadURL(feedUrl, {userAgent: electronUserAgent})
+            win.webContents.once('dom-ready', () => {
+              global.search_attempts = 1
+              function search() {
+                if(global.search_attempts > 360) {
+                  app.exit(1)
+                }
+                win.webContents.executeJavaScript(`(new XMLSerializer().serializeToString(document))`).then((result) => {
+                  if(result.length > 0) {
+                    const $ = cheerio.load(result)
+                    let $search = $('table.table-list.table.table-responsive.table-striped > tbody > tr')
+                    if($search.length > 19 || (global.search_attempts === 360 && $search.length > 0)) {
+                      let pageTitle = "Searching for: Windows LTSC Gen2"
+                      let xml = '<?xml version="1.0" encoding="UTF-8" ?><rss version="2.0"><channel><title>' + pageTitle.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') + '</title><link>' + feedUrl.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') + '</link><description>' + feedDesc.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') + '</description>\n'
+                      let items = []
+                      for (let i = 0; i < $search.length; i++) {
+                        let $title = $search.eq(i).find('td.name a:not(.icon)')
+                        let title = $title.text().replace(/\s+/g,' ').trim().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+                        if(/(?:es-ES|fr-FR|IoT|NORDiC|pt-BR)/i.test(title)) {
+                          continue
+                        }
+                        let link = $title.attr('href')
+                        if(link.startsWith('/')) {
+                          link = 'https://www.1377x.to' + link
+                        }
+                        link = link.replace(/\s+/g,' ').trim().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+                        let description = $search.eq(i).find('td.size').text().replace(/\s+/g,' ').trim().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+                        items.push([link, title, description])
+                      }
+                      for (let i = 0; i < items.length; i++) {
+                        xml += '<item><title>' + items[i][1] + '</title><link>' + items[i][0] + '</link><description>' + items[i][2] + '</description></item>\n'
+                      }
+                      xml += '</channel></rss>'
+                      fs.writeFileSync('./w10/w10.rss', xml, 'utf-8')
+                      app.exit()
+                    }
+                  }
+                  global.search_attempts = global.search_attempts + 1
+                  setTimeout(search, 1000)
+                })
+              }
+              search()
+            })
+          })
+        }
+        else {
+          console.log('Running on Node ' + process.versions.node)
+          const electron = require('electron')
+          const { spawn } = require('child_process')
+          spawn(electron, ['--use_strict', 'script.js'], { stdio: 'inherit' })
+        }
+        EOF
+        node --use_strict script.js
+        rm script.js
+        
+        # Remove npm
+        rm -r bin/
+        rm -r node_modules/
+        rm package-lock.json
+    - id: cpr
+      uses: peter-evans/create-pull-request@v5.0.2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: Update feed
+        author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+        committer: GitHub <noreply@github.com>
+        title: Update feed
+        body: |
+          Push the latest changes to the relevant files.
+        labels: automerge
+        branch: actions/w10
+        base: main
+    - name: get repository name
+      if: ${{ steps.cpr.outputs.pull-request-number }}
+      shell: bash
+      run: echo "REPOSITORY_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+    - name: automerge
+      if: ${{ steps.cpr.outputs.pull-request-number }}
+      uses: actions/github-script@v6.4.1
+      with:
+        script: |
+          github.rest.pulls.merge({
+            owner: '${{ github.repository_owner }}',
+            repo: '${{ env.REPOSITORY_NAME }}',
+            pull_number: '${{ steps.cpr.outputs.pull-request-number }}',
+            sha: '${{ steps.cpr.outputs.pull-request-head-sha }}',
+            merge_method: 'merge'
+          })
