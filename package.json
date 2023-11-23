@@ -4,7 +4,7 @@
   "private": true,
   "dependencies": {
     "cheerio": "github:EIGHTFINITE/cheerio#main",
-    "electron": "^25.9.5",
+    "electron": "^25.9.6",
     "top-user-agents": "github:EIGHTFINITE/top-user-agents#main"
   }
 }
