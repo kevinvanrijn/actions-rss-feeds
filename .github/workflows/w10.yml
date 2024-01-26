@@ -51,7 +51,7 @@ jobs:
         cat << 'EOF' > script.js
         if(process.versions.electron) {
           console.log('Running on Electron ' + process.versions.electron + ' + Node ' + process.versions.node)
-          const feedUrl = 'https://www.1377x.to/sort-search/Windows%20LTSC%20Gen2/time/desc/1/'
+          const feedUrl = 'https://www.1377x.to/sort-search/Gen2/time/desc/1/'
           const feedDesc = "Download Windows LTSC Gen2"
           const electronUserAgent = require('./node_modules/top-user-agents/index.json')[0]
           const fs = require('fs')
@@ -85,6 +85,9 @@ jobs:
                       for (let i = 0; i < $search.length; i++) {
                         let $title = $search.eq(i).find('td.name a:not(.icon)')
                         let title = $title.text().replace(/\s+/g,' ').trim().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+                        if(!/Windows/i.test(title) || /Windows 7/i.test(title) || !/LTS[BC]/i.test(title)) {
+                          continue
+                        }
                         if(/(?:es-ES|fr-FR|IoT|NORDiC|pt-BR)/i.test(title)) {
                           continue
                         }
